@@ -5,7 +5,7 @@ string stateName[]={"Idle","Starting","Capturing","Finding","Unifying","Selectin
 #define FINDINGS_MIN_WIDTH 50
 #define FINDINGS_MIN_HEIGHT 50
 
-#define FACES_DIST_DIFF 50
+#define FACES_DIST_DIFF 40
 #define FACES_DIM_DIFF 20
 
 //--------------------------------------------------------------
@@ -242,7 +242,7 @@ void testApp::draw(){
         ofSetColor(255);
         int height=0;
         for(int i=0; i<portraits.size(); i++){
-            portraits[i].image.draw(ofGetWidth()*0.5,height);
+            portraits[i].image.draw(CAPTURE_WIDTH*0.5,height);
             height+=portraits[i].image.getHeight();
         }
         break;
