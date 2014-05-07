@@ -126,31 +126,18 @@ void testApp::update(){
                     for(int i=0; i<faces[selectingFaces].size(); i++){
                         ofPixels gray=faces[selectingFaces][i].image;
                         gray.setImageType(OF_IMAGE_GRAYSCALE);
-                        ofPixels sobelX;
-                        sobelX.allocate(gray.getWidth(),gray.getHeight(),OF_IMAGE_GRAYSCALE);
-                        ofPixels sobelY;
-                        sobelY.allocate(gray.getWidth(),gray.getHeight(),OF_IMAGE_GRAYSCALE);
-                        unsigned char * grayPixels=gray.getPixels();
-                        unsigned char * dx=sobelX.getPixels();
-                        for(int y=0;y<gray.getHeight();y++){
-                            for(int x=1;x<gray.getWidth();x++){
-                                int index=x+y*gray.getWidth();
-                                int indexPrevious=(x-1)+y*gray.getWidth();
-                                dx[index]=grayPixels[index]-grayPixels[indexPrevious];
-                            }
-                        }
-                        unsigned char * dy=sobelY.getPixels();
-                        for(int y=1;y<gray.getHeight();y++){
-                            for(int x=0;x<gray.getWidth();x++){
-                                int index=x+y*gray.getWidth();
-                                int indexPrevious=x+(y-1)*gray.getWidth();
-                                dy[index]=grayPixels[index]-grayPixels[indexPrevious];
-                            }
-                        }
+                        ofPixels canny;
+                        canny.allocate(gray.getWidth(),gray.getHeight(),OF_IMAGE_GRAYSCALE);
+                        float cannyParam1=400;
+                        float cannyParam2=600;
+                        float apertureSize=5;
+                        ofxCv::Canny(gray, canny, cannyParam1 * 2, cannyParam2 * 2, apertureSize);
                         float sharpness=0;
-                        for(int j=0;j<(gray.getWidth()*gray.getHeight());j++){
-                            sharpness+=(dx[j]*dx[j]+dy[j]*dy[j]);
+                        unsigned char * cannyPixels=canny.getPixels();
+                        for(int j=0;j<(canny.getWidth()*canny.getHeight());j++){
+                            sharpness+=cannyPixels[j];
                         }
+                        sharpness/=(canny.getWidth()*canny.getHeight());
                         if(sharpness>selectionSharpness){
                             selectionSharpness=sharpness;
                             selections[selectingFaces]=i;
