@@ -1,31 +1,36 @@
 #include "testApp.h"
 
-string stateName[]={"Idle","Starting","Capturing","Finding","Unifying","Selecting","Cropping","Finishing"};
+string stateName[]={"Idle","Starting","Capturing","Finding","Unifying","Selecting","Cropping","Finishing","Waiting","Saving"};
 
-#define FINDINGS_MIN_WIDTH 50
-#define FINDINGS_MIN_HEIGHT 50
+#define FINDINGS_MIN_SCALE 0.05
+#define FINDINGS_MAX_SCALE 0.50
 
-#define FACES_DIST_DIFF 40
-#define FACES_DIM_DIFF 20
+#define FACES_DIST_DIFF 100
+#define FACES_DIM_DIFF 50
+
+#define BRIGTHNESS_MIN 100
+
+#define PORTRAIT_WIDTH 300
+#define PORTRAIT_HEIGHT 400
 
 //--------------------------------------------------------------
 void testApp::setup(){
     camera.initGrabber(CAPTURE_WIDTH,CAPTURE_HEIGHT);
-	finder.setup("haarcascade_frontalface_default.xml");
-	state=IDLE;
-
-    startingTimeout=0.0;
-	capturedFrames=0;
-	captureSkip=0;
-
-	findingTimeout=0.0;
-	findingFrames=0;
-
-	unifyingTimeout=0.0;
-	unifyingFrames=0;
-
-	selectingTimeout=0.0;
-	selectingFaces=0;
+    
+    instagram.lut=true;
+    instagram.xpro=true;
+    
+    finder.setup(ofToDataPath("haarcascade_frontalface_alt2.xml"));
+	finder.setPreset(ofxCv::ObjectFinder::Accurate);
+    finder.setMinSizeScale(FINDINGS_MIN_SCALE);
+    finder.setMaxSizeScale(FINDINGS_MAX_SCALE);
+    finder.setCannyPruning(true);
+    
+    delay=0;
+    
+    state=IDLE;
+    
+    automatic=1.0;
 
 	time=ofGetElapsedTimef();
 }
@@ -36,149 +41,191 @@ void testApp::update(){
     float dt=t-time;
     time=t;
 
-    switch(state){
-    case IDLE:
-        break;
-    case STARTING:
-        camera.update();
-        startingTimeout-=dt;
-        if(startingTimeout<=0){
-            nextState();
-        }
-        break;
-    case CAPTURING:
-        camera.update();
-        if(camera.isFrameNew()){
-            captureSkip--;
-            if(!captureSkip){
-                frames[capturedFrames].setFromPixels(camera.getPixelsRef());
-                frames[capturedFrames].update();
-                captureSkip=CAPTURE_SKIP;
-                capturedFrames++;
-                if(capturedFrames>=CAPTURE_FRAMES){
-                   nextState();
+    if(!delay){
+        switch(state){
+            case IDLE:
+                if(automatic){
+                    automatic-=dt;
+                    if(automatic<=0){
+                        automatic=1.0;
+                        nextState();
+                    }
                 }
-            }
-        }
-        break;
-    case FINDING:
-        findingTimeout-=dt;
-        if(findingTimeout<=0){
-            finder.findHaarObjects(frames[findingFrames].getPixelsRef(),FINDINGS_MIN_WIDTH,FINDINGS_MIN_HEIGHT);
-            for(int i=0; i<finder.blobs.size(); i++) {
-                findings[findingFrames].push_back(finder.blobs[i].boundingRect);
-            }
-            findingTimeout=0.5;
-            findingFrames++;
-            if(findingFrames>=CAPTURE_FRAMES){
-                nextState();
-            }
-        }
-        break;
-    case UNIFYING:
-        unifyingTimeout-=dt;
-        if(unifyingTimeout<=0){
-            for(int i=0; i<findings[unifyingFrames].size(); i++){
-                int exists=-1;
-                Face newFace;
-                newFace.bounds=findings[unifyingFrames][i];
-                newFace.frame=unifyingFrames;
-                newFace.image.cropFrom(frames[unifyingFrames],newFace.bounds.x,newFace.bounds.y,newFace.bounds.width,newFace.bounds.height);
-                for(int j=0; j<facesPosition.size(); j++){
-                    if(facesPosition[j].distance(newFace.bounds.getCenter())<FACES_DIST_DIFF){
-                        if(abs(facesDimension[j].x-newFace.bounds.width)<FACES_DIM_DIFF && abs(facesDimension[j].y-newFace.bounds.height)<FACES_DIM_DIFF){
-                            exists=j;
-                            break;
+                break;
+            case STARTING:
+                camera.update();
+                startingTimeout-=dt;
+                if(startingTimeout<=0){
+                    nextState();
+                }
+                break;
+            case CAPTURING:
+                camera.update();
+                if(camera.isFrameNew()){
+                    captureSkip--;
+                    if(!captureSkip){
+                        frames[capturedFrames].setFromPixels(camera.getPixelsRef());
+                        frames[capturedFrames].update();
+                        captureSkip=CAPTURE_SKIP;
+                        capturedFrames++;
+                        if(capturedFrames>=CAPTURE_FRAMES){
+                            nextState();
                         }
                     }
                 }
-                if(exists==-1){
-                    faces.push_back(vector<Face>());
-                    facesPosition.push_back(ofPoint());
-                    facesDimension.push_back(ofVec2f());
-                    exists=faces.size()-1;
+                break;
+            case FINDING:
+                finder.update(frames[findingFrames]);
+                for(int i=0; i<finder.size(); i++) {
+                    findings[findingFrames].push_back(finder.getObject(i));
                 }
-                faces[exists].push_back(newFace);
-                facesPosition[exists].set(0,0);
-                facesDimension[exists].set(0,0);
-                for(int j=0; j<faces[exists].size(); j++){
-                    facesPosition[exists]+=(faces[exists][j].bounds.getCenter()/faces[exists].size());
-                    facesDimension[exists]+=(ofVec2f(faces[exists][j].bounds.width,faces[exists][j].bounds.height)/faces[exists].size());
-                }
-            }
-            unifyingTimeout=0.5;
-            unifyingFrames++;
-            if(unifyingFrames>=CAPTURE_FRAMES){
-                nextState();
-            }
-        }
-        break;
-    case SELECTING:
-        selectingTimeout-=dt;
-        if(selectingTimeout<=0){
-            int s=0;
-            float maxSharpness=0;
-            for(int i=0; i<faces[selectingFaces].size(); i++){
-                ofxCvColorImage color;
-                color.setFromPixels(faces[selectingFaces][i].image.getPixelsRef());
-                ofxCvGrayscaleImage gray;
-                gray = color;
-                ofxCvGrayscaleImage sobelX;
-                sobelX.allocate(gray.getWidth(),gray.getHeight());
-                ofxCvGrayscaleImage sobelY;
-                sobelY.allocate(gray.getWidth(),gray.getHeight());
-                unsigned char * grayPixels=gray.getPixels();
-                unsigned char * dx=sobelX.getPixels();
-                for(int y=0;y<gray.getHeight();y++){
-                    for(int x=1;x<gray.getWidth();x++){
-                        int index=x+y*gray.getWidth();
-                        int indexPrevious=(x-1)+y*gray.getWidth();
-                        dx[index]=grayPixels[index]-grayPixels[indexPrevious];
+                findingFrames++;
+                if(findingFrames>=CAPTURE_FRAMES)
+                    nextState();
+                else
+                    delay=0.1;
+                break;
+            case UNIFYING:
+                for(int i=0; i<findings[unifyingFrames].size(); i++){
+                    int exists=-1;
+                    Face newFace;
+                    newFace.bounds=findings[unifyingFrames][i];
+                    newFace.frame=unifyingFrames;
+                    newFace.image.cropFrom(frames[unifyingFrames],newFace.bounds.x,newFace.bounds.y,newFace.bounds.width,newFace.bounds.height);
+                    for(int j=0; j<facesPosition.size(); j++){
+                        if(facesPosition[j].distance(newFace.bounds.getCenter())<FACES_DIST_DIFF){
+                            if(abs(facesDimension[j].x-newFace.bounds.width)<FACES_DIM_DIFF && abs(facesDimension[j].y-newFace.bounds.height)<FACES_DIM_DIFF){
+                                exists=j;
+                                break;
+                            }
+                        }
+                    }
+                    if(exists==-1){
+                        faces.push_back(vector<Face>());
+                        facesPosition.push_back(ofPoint());
+                        facesDimension.push_back(ofVec2f());
+                        exists=faces.size()-1;
+                    }
+                    faces[exists].push_back(newFace);
+                    facesPosition[exists].set(0,0);
+                    facesDimension[exists].set(0,0);
+                    for(int j=0; j<faces[exists].size(); j++){
+                        facesPosition[exists]+=(faces[exists][j].bounds.getCenter()/faces[exists].size());
+                        facesDimension[exists]+=(ofVec2f(faces[exists][j].bounds.width,faces[exists][j].bounds.height)/faces[exists].size());
                     }
                 }
-                unsigned char * dy=sobelY.getPixels();
-                for(int y=1;y<gray.getHeight();y++){
-                    for(int x=0;x<gray.getWidth();x++){
-                        int index=x+y*gray.getWidth();
-                        int indexPrevious=x+(y-1)*gray.getWidth();
-                        dy[index]=grayPixels[index]-grayPixels[indexPrevious];
+                unifyingFrames++;
+                if(unifyingFrames>=CAPTURE_FRAMES)
+                    nextState();
+                else
+                    delay=0.1;
+                break;
+            case SELECTING:
+                selectionSharpness=0;
+                if(faces.size()){
+                    for(int i=0; i<faces[selectingFaces].size(); i++){
+                        ofPixels gray=faces[selectingFaces][i].image;
+                        gray.setImageType(OF_IMAGE_GRAYSCALE);
+                        ofPixels sobelX;
+                        sobelX.allocate(gray.getWidth(),gray.getHeight(),OF_IMAGE_GRAYSCALE);
+                        ofPixels sobelY;
+                        sobelY.allocate(gray.getWidth(),gray.getHeight(),OF_IMAGE_GRAYSCALE);
+                        unsigned char * grayPixels=gray.getPixels();
+                        unsigned char * dx=sobelX.getPixels();
+                        for(int y=0;y<gray.getHeight();y++){
+                            for(int x=1;x<gray.getWidth();x++){
+                                int index=x+y*gray.getWidth();
+                                int indexPrevious=(x-1)+y*gray.getWidth();
+                                dx[index]=grayPixels[index]-grayPixels[indexPrevious];
+                            }
+                        }
+                        unsigned char * dy=sobelY.getPixels();
+                        for(int y=1;y<gray.getHeight();y++){
+                            for(int x=0;x<gray.getWidth();x++){
+                                int index=x+y*gray.getWidth();
+                                int indexPrevious=x+(y-1)*gray.getWidth();
+                                dy[index]=grayPixels[index]-grayPixels[indexPrevious];
+                            }
+                        }
+                        float sharpness=0;
+                        for(int j=0;j<(gray.getWidth()*gray.getHeight());j++){
+                            sharpness+=(dx[j]*dx[j]+dy[j]*dy[j]);
+                        }
+                        if(sharpness>selectionSharpness){
+                            selectionSharpness=sharpness;
+                            selections[selectingFaces]=i;
+                        }
                     }
                 }
-                float sharpness=0;
-                for(int j=0;j<(gray.getWidth()*gray.getHeight());j++){
-                    sharpness+=(dx[j]*dx[j]+dy[j]*dy[j]);
+                selectingFaces++;
+                if(selectingFaces>=faces.size())
+                    nextState();
+                else
+                    delay=0.1;
+                break;
+            case CROPPING:
+                if(faces.size()){
+                    if(faces[croppingFaces].size()>CAPTURE_FRAMES/3){
+                        portraits.push_back(Portrait());
+                        portraits.back().rating=faces[croppingFaces].size();
+                        int frame=faces[croppingFaces][selections[croppingFaces]].frame;
+                        ofPoint center=faces[croppingFaces][selections[croppingFaces]].bounds.getCenter();
+                        float ampX=1.2;
+                        float ampY=1.5;
+                        ofVec2f dim=ofVec2f(ampX*faces[croppingFaces][selections[croppingFaces]].bounds.width,ampY*faces[croppingFaces][selections[croppingFaces]].bounds.height);
+                        ofRectangle crop(center.x-dim.x*0.5,center.y-dim.y*0.5,dim.x,dim.y);
+                        portraits.back().image.cropFrom(frames[frame],crop.x,crop.y,crop.width,crop.height);
+                    }
                 }
-                if(sharpness>maxSharpness){
-                    maxSharpness=sharpness;
-                    s=i;
+                croppingFaces++;
+                if(croppingFaces>=faces.size())
+                    nextState();
+                else
+                    delay=0.5;
+                break;
+            case FINISHING:
+                if(portraits.size()){
+                    portraits[finishingPortraits].imageRefined=portraits[finishingPortraits].image;
+                    if((portraits[finishingPortraits].image.getWidth()/portraits[finishingPortraits].image.getHeight())>(PORTRAIT_WIDTH/PORTRAIT_HEIGHT)){
+                        int newWidth=portraits[finishingPortraits].image.getHeight()*PORTRAIT_WIDTH/PORTRAIT_HEIGHT;
+                        portraits[finishingPortraits].imageRefined.crop((portraits[finishingPortraits].image.getWidth()-newWidth)*0.5,0,newWidth,portraits[finishingPortraits].image.getHeight());
+                    }
+                    else if((portraits[finishingPortraits].image.getWidth()/portraits[finishingPortraits].image.getHeight())<(PORTRAIT_WIDTH/PORTRAIT_HEIGHT)){
+                        int newHeight=portraits[finishingPortraits].image.getWidth()*PORTRAIT_HEIGHT/PORTRAIT_WIDTH;
+                        portraits[finishingPortraits].imageRefined.crop(0,(portraits[finishingPortraits].image.getHeight()-newHeight)*0.5,portraits[finishingPortraits].image.getWidth(),newHeight);
+                    }
+                    portraits[finishingPortraits].imageRefined.resize(PORTRAIT_WIDTH,PORTRAIT_HEIGHT);
+                    instagram.applyFilter(portraits[finishingPortraits].imageRefined.getTextureReference()).readToPixels(portraits[finishingPortraits].imageRefined.getPixelsRef());
+                    portraits[finishingPortraits].imageRefined.update();
                 }
-            }
-            selections[selectingFaces]=s;
-            selectingTimeout=0.5;
-            selectingFaces++;
-            if(selectingFaces>=faces.size()){
+                finishingPortraits++;
+                if(finishingPortraits>=portraits.size())
+                    nextState();
+                else
+                    delay=0.1;
+                break;
+            case WAITING:
+                if(automatic){
+                    automatic-=dt;
+                    if(automatic<=0){
+                        automatic=1.0;
+                        nextState();
+                    }
+                }
+                break;
+            case SAVING:
+                for(int i=0;i<portraits.size();i++){
+                    ofSaveImage(portraits[i].imageRefined,"portraits/"+ofGetTimestampString()+"_"+ofToString(i)+"_"+ofToString(portraits[i].rating)+".png",OF_IMAGE_QUALITY_BEST);
+                    ofSaveImage(portraits[i].image,"portraits/"+ofGetTimestampString()+"_"+ofToString(i)+"_"+ofToString(portraits[i].rating)+"_original.png",OF_IMAGE_QUALITY_BEST);
+                }
                 nextState();
-            }
+                break;
         }
-        break;
-    case CROPPING:
-        for(int i=0; i<faces.size(); i++){
-            if(faces[i].size()>CAPTURE_FRAMES/3){
-                portraits.push_back(Portrait());
-                portraits.back().rating=faces[i].size();
-                int frame=faces[i][selections[i]].frame;
-                ofPoint center=faces[i][selections[i]].bounds.getCenter();
-                float amp=1.2;
-                ofVec2f dim=amp*ofVec2f(faces[i][selections[i]].bounds.width,faces[i][selections[i]].bounds.height);
-                ofRectangle crop(center.x-dim.x*0.5,center.y-dim.y*0.5,dim.x,dim.y);
-                portraits.back().image.cropFrom(frames[frame],crop.x,crop.y,crop.width,crop.height);
-                portraits.back().image.setAnchorPercent(0.5,0.);
-            }
-        }
-        nextState();
-        break;
-    case FINISHING:
-        break;
+    }
+    else{
+        delay-=dt;
+        if(delay<=0)
+            delay=0;
     }
 }
 
@@ -194,12 +241,12 @@ void testApp::draw(){
     case STARTING:
         ofSetColor(255);
         camera.draw(0,0);
-        ofDrawBitmapString("Starting Timeout: " + ofToString(startingTimeout,1),5,30);
+        ofDrawBitmapString("Starting Timeout: " + ofToString(startingTimeout,1),10/SCALE,60/SCALE);
         break;
     case CAPTURING:
         ofSetColor(255);
         camera.draw(0,0);
-        ofDrawBitmapString("Captured Frames: " + ofToString(capturedFrames),5,30);
+        ofDrawBitmapString("Captured Frames: " + ofToString(capturedFrames),10/SCALE,60/SCALE);
         break;
     case FINDING:
         if(findingFrames){
@@ -213,7 +260,7 @@ void testApp::draw(){
             }
         }
         ofSetColor(255);
-        ofDrawBitmapString("Finding Frames: " + ofToString(findingFrames),5,30);
+        ofDrawBitmapString("Finding Frames: " + ofToString(findingFrames),10/SCALE,60/SCALE);
         break;
     case UNIFYING:
         ofSetColor(255);
@@ -222,7 +269,7 @@ void testApp::draw(){
                 faces[i][j].image.draw(j*THUMB_WIDTH,1.5*i*THUMB_WIDTH,THUMB_WIDTH,THUMB_WIDTH);
             }
         }
-        ofDrawBitmapString("Unifying Frames: " + ofToString(unifyingFrames),5,30);
+        ofDrawBitmapString("Unifying Frames: " + ofToString(unifyingFrames),10/SCALE,60/SCALE);
         break;
     case SELECTING:
         for(int i=0; i<faces.size(); i++){
@@ -235,16 +282,27 @@ void testApp::draw(){
             }
         }
         ofSetColor(255);
-        ofDrawBitmapString("Selecting Frames: " + ofToString(selectingFaces),5,30);
+        ofDrawBitmapString("Selecting Frames: " + ofToString(selectingFaces),10/SCALE,60/SCALE);
         break;
     case CROPPING:
-    case FINISHING:
         ofSetColor(255);
-        int height=0;
+        ofPushMatrix();
         for(int i=0; i<portraits.size(); i++){
-            portraits[i].image.draw(CAPTURE_WIDTH*0.5,height);
-            height+=portraits[i].image.getHeight();
+            portraits[i].image.draw(0,60/SCALE);
+            ofTranslate(portraits[i].image.getWidth()+10/SCALE,0);
         }
+        ofPopMatrix();
+        break;
+    case FINISHING:
+    case WAITING:
+    case SAVING:
+        ofSetColor(255);
+        ofPushMatrix();
+        for(int i=0; i<portraits.size() && i<finishingPortraits; i++){
+            portraits[i].imageRefined.draw(0,60/SCALE);
+            ofTranslate(portraits[i].imageRefined.getWidth()+10/SCALE,0);
+        }
+        ofPopMatrix();
         break;
      }
     ofPopStyle();
@@ -275,26 +333,34 @@ void testApp::nextState(){
         for(int i=0; i<CAPTURE_FRAMES; i++) {
             findings[i].clear();
         }
-        findingTimeout=0.0;
         findingFrames=0;
         break;
     case UNIFYING:
+        for(int i=0; i<faces.size(); i++) {
+            faces[i].clear();
+        }
         faces.clear();
         facesPosition.clear();
         facesDimension.clear();
-        unifyingTimeout=0.0;
         unifyingFrames=0;
         break;
     case SELECTING:
         selections.clear();
         selections.assign(faces.size(),-1);
-        selectingTimeout=0.0;
         selectingFaces=0;
         break;
     case CROPPING:
+        croppingFaces=0;
         portraits.clear();
         break;
     case FINISHING:
+        finishingPortraits=0;
+        break;
+    case WAITING:
+        break;
+    case SAVING:
+        break;
+    default:
         break;
     }
 }

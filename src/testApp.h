@@ -1,17 +1,18 @@
 #pragma once
 
 #include "ofMain.h"
-#include "ofxOpenCv.h"
+#include "ofxCv.h"
+#include "ofxInstagram.h"
 
-#define CAPTURE_WIDTH 320
-#define CAPTURE_HEIGHT 240
+#define CAPTURE_WIDTH 1920
+#define CAPTURE_HEIGHT 1080
 
 #define CAPTURE_FRAMES 20
 #define CAPTURE_SKIP 5
 
 #define THUMB_WIDTH CAPTURE_WIDTH/CAPTURE_FRAMES
 
-#define SCALE 2
+#define SCALE 0.5
 
 enum FaceCaptureState{
     IDLE=0,
@@ -22,6 +23,8 @@ enum FaceCaptureState{
     SELECTING,
     CROPPING,
     FINISHING,
+    WAITING,
+    SAVING,
     STATES
 };
 
@@ -33,6 +36,7 @@ typedef struct{
 
 typedef struct{
     ofImage image;
+    ofImage imageRefined;
     unsigned int rating;
 }Portrait;
 
@@ -56,6 +60,7 @@ class testApp : public ofBaseApp{
 		void nextState();
 
         float time;
+        float delay;
 
 		FaceCaptureState state;
 
@@ -65,22 +70,25 @@ class testApp : public ofBaseApp{
         unsigned int captureSkip;
         unsigned int capturedFrames;
 
-        float findingTimeout;
         unsigned int findingFrames;
         vector<ofRectangle> findings[CAPTURE_FRAMES];
 
-        float unifyingTimeout;
         unsigned int unifyingFrames;
         vector< vector<Face> > faces;
         vector<ofPoint> facesPosition;
         vector<ofVec2f> facesDimension;
 
-        float selectingTimeout;
         unsigned int selectingFaces;
+        float selectionSharpness;
         vector<int> selections;
-
+        
+        unsigned int croppingFaces;
+        unsigned int finishingPortraits;
         vector<Portrait> portraits;
-
-		ofxCvHaarFinder finder;
-		ofVideoGrabber camera;
+    
+        ofxCv::ObjectFinder finder;
+        ofVideoGrabber camera;
+        ofxInstagram instagram;
+    
+    float automatic;
 };
