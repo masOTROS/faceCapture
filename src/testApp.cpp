@@ -8,7 +8,7 @@ string stateName[]={"Idle","Starting","Capturing","Finding","Unifying","Selectin
 #define FACES_DIST_DIFF 100
 #define FACES_DIM_DIFF 50
 
-#define BRIGTHNESS_MIN 100
+#define BRIGHTNESS_MIN 25
 
 #define PORTRAIT_WIDTH 300
 #define PORTRAIT_HEIGHT 400
@@ -77,7 +77,18 @@ void testApp::update(){
             case FINDING:
                 finder.update(frames[findingFrames]);
                 for(int i=0; i<finder.size(); i++) {
-                    findings[findingFrames].push_back(finder.getObject(i));
+                    ofRectangle cur=finder.getObject(i);
+                    ofImage gray;
+                    gray.cropFrom(frames[findingFrames],cur.x,cur.y,cur.width,cur.height);
+                    gray.setImageType(OF_IMAGE_GRAYSCALE);
+                    float brightness=0;
+                    unsigned char* grayPixels=gray.getPixels();
+                    for(int j=0;j<(gray.getWidth()*gray.getHeight());j++){
+                        brightness+=grayPixels[j];
+                    }
+                    brightness/=(gray.getWidth()*gray.getHeight());
+                    if(brightness>BRIGHTNESS_MIN)
+                        findings[findingFrames].push_back(finder.getObject(i));
                 }
                 findingFrames++;
                 if(findingFrames>=CAPTURE_FRAMES)
